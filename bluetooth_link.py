@@ -67,10 +67,17 @@ class BluetoothLink:
             raise ConnectionError("Клиент не подключён")
 
         self._client.settimeout(timeout)
-        while b"\n" not in self._buffer:
+        while b"\n" not in self._buffer and b"\r" not in self._buffer:
             try:
+                # Если уже что-то пришло, ждём остаток недолго: телефон может
+                # слать команды без символа конца строки.
+                if self._buffer:
+                    self._client.settimeout(0.2)
                 chunk = self._client.recv(1024)
             except socket.timeout:
+                if self._buffer:
+                    data, self._buffer = self._buffer, b""
+                    return data.decode(self.encoding, errors="ignore").strip()
                 return None
             except OSError as e:
                 self.close_client()
@@ -80,7 +87,8 @@ class BluetoothLink:
                 raise ConnectionError("Телефон отключился")
             self._buffer += chunk
 
-        line, self._buffer = self._buffer.split(b"\n", 1)
+        sep = b"\n" if b"\n" in self._buffer else b"\r"
+        line, self._buffer = self._buffer.split(sep, 1)
         return line.decode(self.encoding, errors="ignore").strip()
 
     def send(self, text: str) -> None:
